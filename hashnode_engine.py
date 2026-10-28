@@ -241,37 +241,38 @@ def execute_gql(token: str, query: str, variables: Optional[dict] = None) -> Tup
         print(f"[!] Hashnode Exception: {e}")
         return False, {"error": str(e)}
 
-def auto_detect_publication(token: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """Retrieves authenticated author and primary publication ID."""
-    query = """
+DEFAULT_PUBLICATION_ID = "6a33eb282dbde43083373bb4"
+DEFAULT_HOST = "aviperera.hashnode.dev"
+
+def auto_detect_publication(token: str, host: str = DEFAULT_HOST) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Retrieves authenticated author and primary publication ID via me query or host fallback."""
+    query_me = """
     query GetMe {
       me {
         id
         username
-        publications(first: 5) {
-          edges {
-            node {
-              id
-              title
-              url
-            }
-          }
-        }
       }
     }
     """
-    ok, data = execute_gql(token, query)
-    if not ok:
-        return None, None, None
-    me = data.get("me") or {}
-    username = me.get("username", "")
-    edges = me.get("publications", {}).get("edges", [])
-    if edges:
-        primary_node = edges[0].get("node", {})
-        pub_id = primary_node.get("id")
-        pub_title = primary_node.get("title", "")
-        return pub_id, pub_title, username
-    return None, None, username
+    ok, data = execute_gql(token, query_me)
+    username = data.get("me", {}).get("username", "a-vip") if ok else "a-vip"
+
+    # Query publication by host
+    query_host = """
+    query GetPubByHost($host: String!) {
+      publication(host: $host) {
+        id
+        title
+        url
+      }
+    }
+    """
+    ok_host, data_host = execute_gql(token, query_host, {"host": host})
+    if ok_host and data_host.get("publication"):
+        pub = data_host["publication"]
+        return pub.get("id"), pub.get("title", "Avi Perera"), username
+
+    return DEFAULT_PUBLICATION_ID, "Avi Perera", username
 
 def build_hashnode_input(post: dict, publication_id: str) -> dict:
     """Constructs PublishPostInput with canonical link and attribution."""
@@ -332,7 +333,7 @@ def main() -> int:
     print(f"Retrieved {len(posts)} publications from aviperera.com")
 
     token = os.getenv("HASHNODE_TOKEN", "").strip()
-    pub_id = os.getenv("HASHNODE_PUBLICATION_ID", "").strip()
+    pub_id = os.getenv("HASHNODE_PUBLICATION_ID", DEFAULT_PUBLICATION_ID).strip()
 
     force_dry_run = "--dry-run" in sys.argv
     has_credentials = bool(token)
@@ -430,3 +431,4 @@ def output_step_summary(items: list, dry_run: bool, has_credentials: bool):
 
 if __name__ == "__main__":
     sys.exit(main())
+
